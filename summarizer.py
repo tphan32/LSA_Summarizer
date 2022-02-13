@@ -1,4 +1,5 @@
 from nltk.corpus import stopwords
+from collections import Counter
 import nltk
 import numpy as np
 import sys
@@ -28,10 +29,10 @@ def getSentences(paragraphs):
 def createBagOfWords(sentences):    
     bow = []
     for s in sentences:
-        words = s.split(" ")
-        for w in words:
-            if w not in bow and w not in stop_words:
-                bow.append(w) 
+        words = s.strip().split(" ")
+        for word in words:
+            if word not in stop_words and word not in bow:
+                bow.append(word)
     return bow
 
 def countNumOccurences(word, sentence):
@@ -44,14 +45,12 @@ def countNumOccurences(word, sentence):
 
 #a matrix representation where columns are sentences and rows are words
 def buildFrequencyMatrix(word_sent_matrix, bow, sentences):
+    sentMap = {}
     for row, word in enumerate(bow):
         for col, sent in enumerate(sentences):
-            word_sent_matrix[row][col] = 0
-            # use count() can miscount words such as to
-            # took, too and to will be counted toward the result
-            # if the key is to => num of occurences of to = 3
-            # even sentence contains only 1 to
-            word_sent_matrix[row][col] = countNumOccurences(word, sent)
+            if not sentMap.get(col):
+                sentMap[col] = Counter(sent.split(" "))
+            word_sent_matrix[row][col] = sentMap[col].get(word,0)
 
 
 
@@ -68,13 +67,16 @@ def buildNounsMatrix(word_sent_matrix, bow, sentences):
             if tagged == 'NN' or tagged == 'NNS' or tagged == 'NNPS' or tagged == 'NNP':
                 word_sent_matrix[row][col] = countNumOccurences(word, sent) # TODO: assign 0
 
+# def ComputeFreq(word_sent_matrix, bow):
+#     max_occur = np.max(word_sent_matrix, axis=0)
+#     for row in range(len(word_sent_matrix.T)):
+#         word_sent_matrix.T[row] /= max_occur[row]
+
 if not stopwords:
     nltk.download('stopwords')
     nltk.download('averaged_perceptron_tagger')
 
 stop_words = stopwords.words('english')
-
-
 
 fn = sys.argv[1]
 top_k = int(sys.argv[2])
@@ -82,10 +84,12 @@ cell_value = sys.argv[3]
 
 raw_sentences, clean_sentences = getSentences(readFile(fn))
 bow = createBagOfWords(clean_sentences)
+
 word_sent_matrix = np.zeros((len(bow), len(raw_sentences)))
 
 if cell_value == "freq":
     buildFrequencyMatrix(word_sent_matrix, bow, clean_sentences)
+    #ComputeFreq(word_sent_matrix, bow)
 elif cell_value == "binary":
     buildBinaryMatrix(word_sent_matrix, bow, clean_sentences)
 elif cell_value == "root":
@@ -94,16 +98,16 @@ else:
     print("ERROR... CAN'T BUILD MATRIX")
     exit(-1)
     
-#print(word_sent_matrix[0])
-#print(bow)
-
+# print(word_sent_matrix[0])
+# print(bow)
 
 U,Sigma,V = np.linalg.svd(word_sent_matrix)
 Vt = V.T
+Vt[0, 0] *= -1
 
 print(Vt)
 
-# for i in range(top_k):
-#     print(np.argmax(Vt[i]))
-#     print(raw_sentences[np.argmax(Vt[i])])
+for i in range(top_k):
+    print(np.argmax(Vt[i]))
+    print(raw_sentences[np.argmax(Vt[i])])
 
