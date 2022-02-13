@@ -5,6 +5,8 @@ import numpy as np
 import sys
 import re
 
+from prometheus_client import Summary
+
 def readFile(fn):
     with open(fn, "r", encoding="utf-8") as file:
         text = file.read()
@@ -18,11 +20,14 @@ def getSentences(paragraphs):
     original_sentences = []
     for p in paragraphs:
         temp = p.split(". ")
-        while '' in temp:
-            temp.remove('')
+        # Not to include short sentences such as 1.
+        # Also, short sentences contain little information
+        temp = [sent for sent in temp if len(sent) >= 3]
         original_sentences += temp
         for i in range(len(temp)):
+            #TODO: Not to include quotation mark
             temp[i] = re.sub(r'[^\w\s]','',temp[i]).lower()
+            
         clean_sentences += temp
     return original_sentences, clean_sentences
 
@@ -52,8 +57,6 @@ def buildFrequencyMatrix(word_sent_matrix, bow, sentences):
                 sentMap[col] = Counter(sent.split(" "))
             word_sent_matrix[row][col] = sentMap[col].get(word,0)
 
-
-
 def buildBinaryMatrix(word_sent_matrix, bow, sentences):
     for row, word in enumerate(bow):
         for col, sent in enumerate(sentences):
@@ -65,12 +68,44 @@ def buildNounsMatrix(word_sent_matrix, bow, sentences):
         for col, sent in enumerate(sentences):
             tagged = nltk.pos_tag([word])[0][1]
             if tagged == 'NN' or tagged == 'NNS' or tagged == 'NNPS' or tagged == 'NNP':
-                word_sent_matrix[row][col] = countNumOccurences(word, sent) # TODO: assign 0
+                word_sent_matrix[row][col] = countNumOccurences(word, sent) # TODO: use 1 or 0
 
-# def ComputeFreq(word_sent_matrix, bow):
-#     max_occur = np.max(word_sent_matrix, axis=0)
-#     for row in range(len(word_sent_matrix.T)):
-#         word_sent_matrix.T[row] /= max_occur[row]
+def summarizeText(Vt, raw_sentences, method, top_k):
+    def GongLiuMethod(Vt, raw_sentences):
+        chosen_sentences = []
+        for i in range(top_k):
+            chosen = np.argmax(Vt[i])
+            chosen_sentences.append((chosen, raw_sentences[chosen]))
+        return chosen_sentences
+    
+    def crossMethod(Vt, raw_sentences):
+        chosen_sentences = []
+        avg = np.mean(Vt, axis=1).reshape(-1, 1)
+        zero_mask = Vt > avg
+        Vt = np.where(zero_mask == True, Vt, 0)
+        length = np.sum(Vt, axis=0)
+        for i in range(top_k):
+            chosen = np.argmax(length)
+            length[chosen] = -sys.maxsize
+            chosen_sentences.append((chosen, raw_sentences[chosen]))
+        return chosen_sentences
+
+    if method == "gongliu":
+        chosen_sentences = GongLiuMethod(Vt, raw_sentences)
+    elif method == "cross":
+        chosen_sentences = crossMethod(Vt, raw_sentences)
+    else:
+        print("ERROR...CAN'T FIND METHOD")
+        exit(-1)
+    
+    chosen_sentences = sorted(chosen_sentences, key= lambda pair:pair[0])
+    summary = ""
+    for pair in chosen_sentences:
+        if pair[1][-1] != ".":
+            summary += pair[1] + ". "
+        else:
+            summary += pair[1] + " "
+    return summary
 
 if not stopwords:
     nltk.download('stopwords')
@@ -81,6 +116,7 @@ stop_words = stopwords.words('english')
 fn = sys.argv[1]
 top_k = int(sys.argv[2])
 cell_value = sys.argv[3]
+method = sys.argv[4]
 
 raw_sentences, clean_sentences = getSentences(readFile(fn))
 bow = createBagOfWords(clean_sentences)
@@ -89,7 +125,6 @@ word_sent_matrix = np.zeros((len(bow), len(raw_sentences)))
 
 if cell_value == "freq":
     buildFrequencyMatrix(word_sent_matrix, bow, clean_sentences)
-    #ComputeFreq(word_sent_matrix, bow)
 elif cell_value == "binary":
     buildBinaryMatrix(word_sent_matrix, bow, clean_sentences)
 elif cell_value == "root":
@@ -98,16 +133,12 @@ else:
     print("ERROR... CAN'T BUILD MATRIX")
     exit(-1)
     
-# print(word_sent_matrix[0])
-# print(bow)
-
 U,Sigma,V = np.linalg.svd(word_sent_matrix)
 Vt = V.T
+#a little tweak for more accuracy
 Vt[0, 0] *= -1
 
-print(Vt)
+#TODO: why not run all algorithms and find the common sentences among them?
 
-for i in range(top_k):
-    print(np.argmax(Vt[i]))
-    print(raw_sentences[np.argmax(Vt[i])])
+print(summarizeText(Vt, raw_sentences, method, top_k))
 
