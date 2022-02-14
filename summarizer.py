@@ -23,7 +23,6 @@ def getSentences(paragraphs):
         temp = [sent for sent in temp if len(sent) >= 3]
         original_sentences += temp
         for i in range(len(temp)):
-            #TODO: Not to include quotation mark
             temp[i] = re.sub(r'[^\w\s]','',temp[i]).lower()
             
         clean_sentences += temp
