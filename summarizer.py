@@ -5,8 +5,6 @@ import numpy as np
 import sys
 import re
 
-from prometheus_client import Summary
-
 def readFile(fn):
     with open(fn, "r", encoding="utf-8") as file:
         text = file.read()
@@ -68,7 +66,7 @@ def buildNounsMatrix(word_sent_matrix, bow, sentences):
         for col, sent in enumerate(sentences):
             tagged = nltk.pos_tag([word])[0][1]
             if tagged == 'NN' or tagged == 'NNS' or tagged == 'NNPS' or tagged == 'NNP':
-                word_sent_matrix[row][col] = countNumOccurences(word, sent) # TODO: use 1 or 0
+                word_sent_matrix[row][col] = countNumOccurences(word, sent) # TODO: try 1 or 0
 
 def summarizeText(Vt, raw_sentences, method, top_k):
     def GongLiuMethod(Vt, raw_sentences):
@@ -84,6 +82,7 @@ def summarizeText(Vt, raw_sentences, method, top_k):
         zero_mask = Vt > avg
         Vt = np.where(zero_mask == True, Vt, 0)
         length = np.sum(Vt, axis=0)
+    
         for i in range(top_k):
             chosen = np.argmax(length)
             length[chosen] = -sys.maxsize
@@ -107,38 +106,35 @@ def summarizeText(Vt, raw_sentences, method, top_k):
             summary += pair[1] + " "
     return summary
 
-if not stopwords:
-    nltk.download('stopwords')
-    nltk.download('averaged_perceptron_tagger')
+if __name__ == '__main__':
+    if not stopwords:
+        nltk.download('stopwords')
+        nltk.download('averaged_perceptron_tagger')
 
-stop_words = stopwords.words('english')
+    stop_words = stopwords.words('english')
+    fn = sys.argv[1]
+    top_k = int(sys.argv[2])
+    cell_value = sys.argv[3]
+    method = sys.argv[4]
 
-fn = sys.argv[1]
-top_k = int(sys.argv[2])
-cell_value = sys.argv[3]
-method = sys.argv[4]
+    raw_sentences, clean_sentences = getSentences(readFile(fn))
+    bow = createBagOfWords(clean_sentences)
+    word_sent_matrix = np.zeros((len(bow), len(raw_sentences)))
 
-raw_sentences, clean_sentences = getSentences(readFile(fn))
-bow = createBagOfWords(clean_sentences)
+    if cell_value == "freq":
+        buildFrequencyMatrix(word_sent_matrix, bow, clean_sentences)
+    elif cell_value == "binary":
+        buildBinaryMatrix(word_sent_matrix, bow, clean_sentences)
+    elif cell_value == "root":
+        buildNounsMatrix(word_sent_matrix, bow, clean_sentences)
+    else:
+        print("ERROR... CAN'T BUILD MATRIX")
+        exit(-1)
 
-word_sent_matrix = np.zeros((len(bow), len(raw_sentences)))
+    U,Sigma,V = np.linalg.svd(word_sent_matrix)
+    Vt = V.T
+    #a little tweak for more accuracy
+    Vt[0, 0] *= -1
 
-if cell_value == "freq":
-    buildFrequencyMatrix(word_sent_matrix, bow, clean_sentences)
-elif cell_value == "binary":
-    buildBinaryMatrix(word_sent_matrix, bow, clean_sentences)
-elif cell_value == "root":
-    buildNounsMatrix(word_sent_matrix, bow, clean_sentences)
-else:
-    print("ERROR... CAN'T BUILD MATRIX")
-    exit(-1)
-    
-U,Sigma,V = np.linalg.svd(word_sent_matrix)
-Vt = V.T
-#a little tweak for more accuracy
-Vt[0, 0] *= -1
-
-#TODO: why not run all algorithms and find the common sentences among them?
-
-print(summarizeText(Vt, raw_sentences, method, top_k))
-
+    #TODO: why not run all algorithms and find the common sentences among them?
+    print(summarizeText(Vt, raw_sentences, method, top_k))
